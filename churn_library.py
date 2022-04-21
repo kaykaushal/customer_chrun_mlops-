@@ -3,38 +3,69 @@
 
 # import libraries
 import os
-os.environ['QT_QPA_PLATFORM']='offscreen'
+import shap
+import joblib
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns;
 
+sns.set()
+
+from sklearn.preprocessing import normalize
+from sklearn.model_selection import train_test_split
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+
+from sklearn.metrics import plot_roc_curve, classification_report
 
 
 def import_data(pth):
-    '''
+    """
     returns dataframe for the csv found at pth
 
     input:
             pth: a path to the csv
     output:
             df: pandas dataframe
-    '''	
-	pass
+    """
+    input_df = pd.read_csv(pth, sep=',', index_col=0)
+    return input_df
 
 
-def perform_eda(df):
-    '''
+def perform_eda(data):
+    """
+
     perform eda on df and save figures to images folder
     input:
             df: pandas dataframe
 
     output:
             None
-    '''
-	pass
+    """
+    print(data.head())
+    # create churn binary column using list comprehension
+    data['Churn'] = [0 if x == 'Existing Customer' else 1 for x in data['Attrition_Flag']]
+    plt.figure(figsize=(16, 8))
+    data['Churn'].hist()
+    # save eda plots in images/eda folder
+    plt.savefig('./images/eda/churn_distribution.png')
+    data['Customer_Age'].hist()
+    plt.savefig('./images/eda/age_distribution.png')
+    data.Marital_Status.value_counts('normalize').plot(kind='bar')
+    plt.savefig('./images/eda/marital_status_distribution.png')
+    sns.histplot(data['Total_Trans_Ct'], stat='density', kde=True)
+    plt.savefig('./images/eda/total_transaction_distribution.png')
+    sns.heatmap(data.corr(), annot=False, cmap='Dark2_r', linewidths=2)
+    plt.savefig('./images/eda/heatmap.png')
 
 
-def encoder_helper(df, category_lst, response):
-    '''
+def encoder_helper(input_data, response):
+    """
     helper function to turn each categorical column into a new column with
-    propotion of churn for each category - associated with cell 15 from the notebook
+    proportion of churn for each category - associated with cell 15 from the notebook
 
     input:
             df: pandas dataframe
@@ -43,12 +74,17 @@ def encoder_helper(df, category_lst, response):
 
     output:
             df: pandas dataframe with new columns for
-    '''
-    pass
+    """
+    # get the list of all categorical column
+    category_lst = input_data.columns[input_data.dtypes == 'object']
+    for cat in category_lst:
+        var_groups = input_data.groupby(cat).mean()[response]
+        input_data[cat + '_churn'] = [var_groups.loc[x] for x in df[cat]]
+    return input_data
 
 
-def perform_feature_engineering(df, response):
-    '''
+def perform_feature_engineering(input_data, response):
+    """
     input:
               df: pandas dataframe
               response: string of response name [optional argument that could be used for naming variables or index y column]
@@ -58,7 +94,12 @@ def perform_feature_engineering(df, response):
               X_test: X testing data
               y_train: y training data
               y_test: y testing data
-    '''
+    """
+    X = input_data[input_data.columns[input_data.dtypes != 'object'][1:]].drop(response, axis=1)
+    y = input_data[response]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    return X_train, X_test, y_train, y_test
+
 
 def classification_report_image(y_train,
                                 y_test,
@@ -66,7 +107,7 @@ def classification_report_image(y_train,
                                 y_train_preds_rf,
                                 y_test_preds_lr,
                                 y_test_preds_rf):
-    '''
+    """
     produces classification report for training and testing results and stores report as image
     in images folder
     input:
@@ -79,12 +120,12 @@ def classification_report_image(y_train,
 
     output:
              None
-    '''
+    """
     pass
 
 
 def feature_importance_plot(model, X_data, output_pth):
-    '''
+    """
     creates and stores the feature importances in pth
     input:
             model: model object containing feature_importances_
@@ -93,11 +134,12 @@ def feature_importance_plot(model, X_data, output_pth):
 
     output:
              None
-    '''
+    """
     pass
 
+
 def train_models(X_train, X_test, y_train, y_test):
-    '''
+    """
     train, store model results: images + scores, and store models
     input:
               X_train: X training data
@@ -106,5 +148,24 @@ def train_models(X_train, X_test, y_train, y_test):
               y_test: y testing data
     output:
               None
-    '''
-    pass
+    """
+    rfc = RandomForestClassifier(random_state=42)
+    lrc = LogisticRegression(solver='lbfgs', max_iter=3000)
+    param_grid = {
+        'n_estimators': [200, 500],
+        'max_features': ['auto', 'sqrt'],
+        'max_depth': [4, 5, 100],
+        'criterion': ['gini', 'entropy']
+    }
+    cv_rfc = GridSearchCV(estimator=rfc, param_grid=param_grid, cv=5)
+    cv_rfc.fit(X_train, y_train)
+    lrc.fit(X_train, y_train)
+    y_train_preds_rf = cv_rfc.best_estimator_.predict(X_train)
+    y_test_preds_rf = cv_rfc.best_estimator_.predict(X_test)
+    y_train_preds_lr = lrc.predict(X_train)
+    y_test_preds_lr = lrc.predict(X_test)
+    return y_train_preds_rf, y_test_preds_rf, y_train_preds_lr, y_test_preds_lr
+
+if __name__ == "__main__":
+    df = import_data('./data/bank_data.csv')
+    perform_eda(df)
